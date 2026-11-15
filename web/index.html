@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NISAR Earth Pulse — radar change explorer</title>
+<meta name="description" content="Open-source explorer of surface change seen by the NASA-ISRO NISAR radar: floods, fires, crops, earthquakes, subsidence and glaciers.">
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.css">
+<link rel="stylesheet" href="css/app.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='12' fill='none' stroke='%233987e5' stroke-width='6'/%3E%3C/svg%3E">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="logo" aria-hidden="true"></span>
+    <div>
+      <h1>NISAR Earth Pulse</h1>
+      <p>Surface change seen through cloud, smoke and night by the NASA-ISRO L-band radar</p>
+    </div>
+  </div>
+</header>
+
+<main class="layout">
+  <section class="map-wrap">
+    <div id="map" class="map"></div>
+    <div id="map-compare" class="map compare" hidden></div>
+    <div id="swipe" class="swipe" hidden><span class="swipe-handle" aria-label="Drag to compare"></span>
+      <span class="swipe-label left" id="swipe-left"></span><span class="swipe-label right" id="swipe-right"></span></div>
+
+    <!-- vertical tool rail -->
+    <nav class="rail" aria-label="Map tools">
+      <button id="btn-zoom-in" data-tip="Zoom in" aria-label="Zoom in" class="c-ice">
+        <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3M11 8v6M8 11h6"/></svg></button>
+      <button id="btn-zoom-out" data-tip="Zoom out" aria-label="Zoom out" class="c-ice">
+        <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3M8 11h6"/></svg></button>
+      <hr>
+      <button id="btn-sites" data-tip="Study sites" aria-label="Study sites" class="c-fire">
+        <svg viewBox="0 0 24 24"><path d="M20 10c0 5-8 12-8 12s-8-7-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg></button>
+      <button id="btn-layers" data-tip="Radar layers & legend" aria-label="Radar layers and legend" class="c-crop" disabled>
+        <svg viewBox="0 0 24 24"><path d="m12 2 10 5-10 5L2 7l10-5Z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></svg></button>
+      <button id="btn-compare" data-tip="Swipe compare before / after" aria-label="Swipe compare before and after" class="c-quake" disabled>
+        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 3v18M7 9l-2 3 2 3M17 9l2 3-2 3"/></svg></button>
+      <button id="btn-explore" data-tip="Explore anywhere — search NISAR data" aria-label="Explore anywhere" class="c-water">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><path d="M12 1v4M12 19v4M1 12h4M19 12h4"/></svg></button>
+      <hr>
+      <button id="btn-globe" data-tip="Globe / flat map" aria-label="Toggle globe view" class="c-ice">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20 15 15 0 0 1 0-20"/></svg></button>
+      <button id="btn-fullscreen" data-tip="Full screen" aria-label="Full screen" class="c-ice">
+        <svg viewBox="0 0 24 24"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg></button>
+      <button id="btn-home" data-tip="Reset view — back to all sites" aria-label="Reset view" class="c-ice">
+        <svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg></button>
+      <button id="btn-about" data-tip="How to read radar" aria-label="How to read radar" class="c-sub">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg></button>
+    </nav>
+
+    <!-- flyout: study sites -->
+    <aside class="flyout" id="sites-panel" aria-label="Study sites" hidden>
+      <div class="panel-head"><h3>Study sites</h3><button class="x" data-close="sites" aria-label="Close">×</button></div>
+      <div class="filters" id="filters" role="group" aria-label="Filter by change type"></div>
+      <ul class="site-list" id="site-list"></ul>
+      <p class="sidebar-foot">Data: NISAR L-band (ASF DAAC) · S-band (ISRO Bhoonidhi). Open source — MIT.</p>
+    </aside>
+
+    <!-- flyout: layers of the open site -->
+    <aside class="flyout" id="layer-panel" aria-label="Radar layers" hidden>
+      <div class="panel-head"><h3>Layers</h3><button class="x" data-close="layers" aria-label="Close">×</button></div>
+      <div id="layer-list"></div>
+      <div class="legend" id="legend"></div>
+    </aside>
+
+    <!-- basemap switcher -->
+    <button id="btn-basemap" class="basemap-tile" aria-label="Switch basemap">
+      <span class="thumb"></span><span class="lbl">Optical</span></button>
+
+    <div class="timeline" id="timeline" hidden>
+      <button id="btn-play" class="icon-btn" aria-label="Play time-lapse">▶</button>
+      <input id="time-slider" type="range" min="0" max="0" value="0" aria-label="Acquisition date">
+      <span id="time-label" class="time-label">—</span>
+      <select id="speed" aria-label="Animation speed"><option value="1400">slow</option><option value="800" selected>normal</option><option value="350">fast</option></select>
+    </div>
+
+    <div class="hint" id="hint">Pick a site on the map — or use <b>Explore anywhere</b> to search NISAR data for any place on Earth.</div>
+  </section>
+
+  <aside class="dashboard" id="dashboard" aria-label="Site dashboard" hidden>
+    <button class="close" id="dash-close" aria-label="Close site and return to world view" title="Back to all sites (Esc)">×</button>
+    <div id="dash-body"></div>
+  </aside>
+</main>
+
+<dialog id="about">
+  <article class="about">
+    <button class="x corner" aria-label="Close" title="Close (Esc)" onclick="this.closest('dialog').close()">×</button>
+    <h2>How to read radar</h2>
+    <p>NISAR sends its own microwave pulses (L-band 24 cm, S-band 9 cm) and records the echo, so it sees through cloud and smoke, by day and night, every 12 days.</p>
+    <dl>
+      <dt>Dark</dt><dd>Smooth surfaces mirror the pulse away: calm water, tarmac, flooded paddies.</dd>
+      <dt>Green (HV)</dt><dd>Volume scattering inside canopies: forests, tall crops. Drops when trees burn or are cut.</dd>
+      <dt>Bright / magenta (HH)</dt><dd>Double bounce: buildings, and water under trees (flooded forest) — an L-band speciality.</dd>
+      <dt>Fringes</dt><dd>Interferometry: each colour cycle is 11.9 cm of ground motion towards or away from the satellite.</dd>
+    </dl>
+    <p class="muted">Polarisation: HH = sent horizontal, received horizontal; HV = sent horizontal, received vertical.</p>
+    <h3>Where NISAR goes next</h3>
+    <ul class="future">
+      <li>Flood extent under cloud in near-real time, including flooded-forest alerts, for disaster agencies.</li>
+      <li>Paddy area and transplanting dates for food-security and crop-insurance programmes.</li>
+      <li>Deforestation alerts that smoke and cloud cannot block, plus L-band biomass-loss estimates.</li>
+      <li>InSAR for infrastructure: subsidence under railways, dams and coastal cities; landslide early warning.</li>
+      <li>Ice-sheet velocity every 12 days, feeding sea-level projections.</li>
+      <li>Dual-frequency science: S-band sees the canopy, L-band the trunks and ground beneath it.</li>
+    </ul>
+    <p class="muted">Data: NASA/ISRO NISAR L2 products from the ASF DAAC. Every site lists the exact granules it was built from.</p>
+    <button class="btn" onclick="this.closest('dialog').close()">Got it</button>
+  </article>
+</dialog>
+
+<div id="explore-panel" class="explore" hidden>
+  <button class="x corner" id="ex-x" aria-label="Close explore" title="Close (Esc)">×</button>
+  <h3>Explore anywhere on Earth</h3>
+  <p class="muted">Drag a box on the map. We query the ASF archive live for NISAR products over it.</p>
+  <div class="row">
+    <label>From <input type="date" id="ex-start" value="2026-06-17"></label>
+    <label>To <input type="date" id="ex-end"></label>
+  </div>
+  <div class="row">
+    <label>Product
+      <select id="ex-product">
+        <option value="GCOV">GCOV — backscatter (floods, fires, crops)</option>
+        <option value="GUNW">GUNW — interferogram (quakes, subsidence)</option>
+        <option value="GOFF">GOFF — pixel offsets (glaciers)</option>
+      </select>
+    </label>
+    <label>Maturity
+      <select id="ex-maturity"><option>PROVISIONAL</option><option>BETA</option><option value="">any</option></select>
+    </label>
+  </div>
+  <div id="ex-result" class="ex-result"></div>
+  <div class="row"><button class="btn" id="ex-redraw" hidden>Draw another box</button><button class="btn ghost" id="ex-close">Close</button></div>
+</div>
+
+<div id="toast" class="toast" role="status" title="Click to dismiss" hidden></div>
+
+<script src="https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.js"></script>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

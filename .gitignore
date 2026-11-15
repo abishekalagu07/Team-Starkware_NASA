@@ -1,0 +1,10 @@
+pipeline/cache/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.h5
+.netrc
+.env
+.DS_Store
+pipeline/.venv/
+web/data/.build-*/
