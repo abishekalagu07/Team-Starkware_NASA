@@ -20,7 +20,8 @@ from .sar import from_db, to_db
 FLOOD_CLASSES = {0: "No change", 1: "Permanent water", 2: "New open water (flood)",
                  3: "Receded water", 4: "Flooded vegetation (double bounce)"}
 DISTURB_CLASSES = {0: "No change", 1: "Vegetation loss (burn / clearing)", 2: "Vegetation gain / regrowth"}
-CROP_CLASSES = {0: "Stable / non-crop", 1: "Paddy rice (flood-then-grow)", 2: "Other active cropland"}
+CROP_CLASSES = {0: "Stable / non-crop", 1: "Paddy rice (flooded, then rapid growth)",
+                2: "Other active cropland (incl. unflooded rice)"}
 
 
 def log_ratio_db(pre_db, post_db):
@@ -59,11 +60,13 @@ def water_threshold(hh_db, default=-18.0, bounds=(-24.0, -13.0)) -> float:
 def qc_dates(hh_stack_db, water_db=None, scene_tol_db=4.0, water_tol_db=6.0, min_water_px=200):
     """Flag acquisitions that are radiometrically inconsistent with the rest of the stack.
 
-    (a) the scene-wide median HH shifts by more than ``scene_tol_db`` from the stack median;
+    (a) the scene-wide median HH is more than ``scene_tol_db`` BRIGHTER than the stack median;
     (b) persistently dark pixels (water in the temporal median) brighten by more than
         ``water_tol_db`` - wind-roughened water, a calibration slip or a corrupt product.
-    A fixed water threshold cannot classify such a date, so it is better left out.
-    Never flags more than a third of the stack. Returns (bad_mask, reasons).
+    Only brightening is suspicious: a whole scene darkens for real when a floodplain or a
+    rice belt goes under water (Punjab in July drops 6-8 dB), and those are the dates that
+    carry the signal. A fixed water threshold cannot classify a brightened date, so it is
+    left out. Never flags more than a third of the stack. Returns (bad_mask, reasons).
     """
     import warnings
 
@@ -77,9 +80,9 @@ def qc_dates(hh_stack_db, water_db=None, scene_tol_db=4.0, water_tol_db=6.0, min
         scene = np.array([np.nanmedian(f) for f in hh_stack_db])
         med = np.nanmedian(hh_stack_db, 0)
     dev = scene - np.nanmedian(scene)
-    for i in np.where(np.abs(dev) > scene_tol_db)[0]:
+    for i in np.where(dev > scene_tol_db)[0]:
         bad[i] = True
-        reasons[i] = f"scene median {dev[i]:+.1f} dB vs stack"
+        reasons[i] = f"scene median {dev[i]:+.1f} dB brighter than stack"
     thr = water_db if water_db is not None else water_threshold(med)
     pw = med < thr
     if pw.sum() >= min_water_px:
@@ -168,16 +171,20 @@ def zscore_stack(stack_db, n_base: int):
 
 
 def crop_phenology(hv_stack_db, dates: list[date], hh_stack_db=None,
-                   flood_db=-20.0, rise_db=5.0, window_days=75, active_range_db=4.0):
+                   flood_db=None, rise_db=5.0, window_days=75, active_range_db=4.0):
     """Per-pixel crop calendar from the radar time series.
 
     Paddy rice: fields are flooded at transplanting (HH/HV collapse below water
     level), then HV rises fast as the canopy develops — a V-shaped curve that
     optical satellites usually miss under monsoon cloud.
+    ``flood_db`` None = the scene's own Otsu water level (same definition the flood
+    recipes use), so "flooded" means the same thing everywhere in the app.
     Returns (classes, metrics dict of 2-D arrays).
     """
     t = np.array([(d - dates[0]).days for d in dates])
     lin = from_db(hv_stack_db)
+    if flood_db is None:
+        flood_db = water_threshold(hh_stack_db if hh_stack_db is not None else hv_stack_db)
     with np.errstate(invalid="ignore"):
         rng = np.nanmax(hv_stack_db, 0) - np.nanmin(hv_stack_db, 0)
     filled = np.where(np.isfinite(hv_stack_db), hv_stack_db, np.inf)

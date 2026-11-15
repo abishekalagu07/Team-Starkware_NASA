@@ -211,3 +211,15 @@ def test_stacks_keep_one_product_per_acquisition_day():
     (stack,) = search.stacks(res).values()
     assert [r["granule"].start.date().isoformat() for r in stack] == ["2026-08-18", "2026-08-30"]
     assert stack[0]["granule"].polarization == "DHDH"          # dual-pol copy preferred
+
+
+def test_qc_dates_keeps_landscape_flooding_dates():
+    rng = np.random.default_rng(1)
+    T, n = 8, 40
+    hh = np.full((T, n, n), -8.0, "f4") + rng.normal(0, 0.5, (T, n, n)).astype("f4")
+    hh[:3] -= 8.0                       # rice belt flooded for transplanting: whole scene 8 dB darker
+    bad, _ = change.qc_dates(hh)
+    assert not bad.any()                # darkening is real flooding, never excluded
+    hh[6] += 8.0                        # a whole scene 8 dB brighter is not physical
+    bad, why = change.qc_dates(hh)
+    assert list(np.where(bad)[0]) == [6] and "brighter" in why[6]
